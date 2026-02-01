@@ -1,7 +1,9 @@
 # 📦 Enday Food — Backend API
 
-Backend REST API untuk aplikasi **Enday Food** menggunakan  
-**NestJS + Prisma + PostgreSQL + JWT Authentication**
+## 🛠 Overview
+
+Enday Food adalah aplikasi pemesanan makanan yang masih tahap pembelajaran, saat ini masih tahap backend Authentication. Backend REST API ini berbasis **NestJS + Prisma + PostgreSQL + JWT Authentication**.
+Dokumentasi ini merupakan tutorial lengkap dari nol hingga aplikasi berjalan, menggabungkan referensi dari Agik Setiawan dan hasil implementasi final pada project ini.
 
 ---
 
@@ -9,47 +11,45 @@ Backend REST API untuk aplikasi **Enday Food** menggunakan
 
 1. 📦 Teknologi
 2. 📋 Prasyarat
-3. 🚀 Membuat Proyek NestJS
+3. 🚀 Setup Proyek
 4. 📦 Instalasi Dependencies
-5. 🔧 Konfigurasi Environment
-6. 🗂 Setup Prisma & Database
+5. 🔧 Konfigurasi Database
+6. 🗂 Prisma Schema & Migrasi
 7. 📜 Struktur Folder
 8. 🧠 Prisma Service
 9. 🔐 JWT Authentication
 10. 🧪 Testing API
-11. 📌 Catatan Penting
+11. 📌 Catatan Tambahan
 
 ---
 
 ## 📦 1. Teknologi
 
-- Node.js (18+)
+- Node.js
 - NestJS
-- Prisma ORM
+- Prisma ORM v5
 - PostgreSQL
-- JWT
-- Passport.js
+- JWT Authentication
 - Bcrypt
 
 ---
 
 ## 📋 2. Prasyarat
 
-Pastikan sudah terinstall:
-
-- Node.js
+- Node.js 18+
 - npm
 - PostgreSQL
+- Git
 
 ---
 
-## 🚀 3. Membuat Proyek NestJS
+## 🚀 3. Setup Proyek
+
+Buat project NestJS:
 
 ```bash
-npm i -g @nestjs/cli
-nest new enday-food
-cd enday-food
-npm run start:dev
+npx @nestjs/cli new backend
+cd backend
 ```
 
 ---
@@ -57,34 +57,44 @@ npm run start:dev
 ## 📦 4. Instalasi Dependencies
 
 ```bash
-npm install @nestjs/jwt @nestjs/passport passport passport-jwt
-npm install bcrypt
+npm install @nestjs/jwt @nestjs/passport passport passport-jwt bcrypt
 npm install @nestjs/config
 npm install prisma @prisma/client
-npm install -D @types/bcrypt
+npm install -D @types/bcrypt @types/passport-jwt
 ```
 
 ---
 
-## 🔧 5. Konfigurasi Environment
+## 🔧 5. Konfigurasi Database
 
-Buat file `.env`
+Buat database PostgreSQL lalu isi file `.env`:
 
 ```env
 DATABASE_URL="postgresql://postgres:password@localhost:5432/endayfood"
-JWT_SECRET="supersecretkey"
-JWT_EXPIRES_IN="1d"
+JWT_SECRET=supersecretjwtkey
+JWT_EXPIRES_IN=1d
 ```
 
 ---
 
-## 🗂 6. Setup Prisma & Database
+## 🗂 6. Prisma Schema & Migrasi
 
 ```bash
 npx prisma init
 ```
 
+`prisma/schema.prisma`
+
 ```prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
 model User {
   id        String   @id @default(uuid())
   name      String
@@ -97,29 +107,28 @@ model User {
 ```
 
 ```bash
-npx prisma generate
 npx prisma migrate dev --name init
+npx prisma generate
 ```
 
 ---
 
 ## 📜 7. Struktur Folder
 
-```
+```text
 src/
 ├─ auth/
 │  ├─ auth.controller.ts
 │  ├─ auth.service.ts
 │  ├─ jwt.strategy.ts
-│  ├─ dto/
-│  │  ├─ login.dto.ts
-│  │  └─ register.dto.ts
+│  └─ dto/
+│     ├─ login.dto.ts
+│     └─ register.dto.ts
 ├─ prisma/
+│  ├─ prisma.module.ts
 │  └─ prisma.service.ts
 ├─ app.module.ts
-.prisma/
 .env
-
 ```
 
 ---
@@ -128,7 +137,7 @@ src/
 
 ```ts
 @Injectable()
-export class PrismaService extends PrismaClient {
+export class PrismaService extends PrismaClient implements OnModuleInit {
   async onModuleInit() {
     await this.$connect();
   }
@@ -139,7 +148,81 @@ export class PrismaService extends PrismaClient {
 
 ## 🔐 9. JWT Authentication
 
-JWT Strategy menggunakan `passport-jwt` dan `ConfigService`.
+### 9.1 Konfigurasi JWT
+
+`src/jwt.config.ts`
+
+```ts
+export const JwtConfig = {
+  user_secret: process.env.JWT_SECRET as string,
+  user_expired: process.env.JWT_EXPIRES_IN || '1d',
+};
+```
+
+---
+
+### 9.2 Auth Module
+
+```ts
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    PassportModule,
+    JwtModule.register({
+      secret: JwtConfig.user_secret,
+      signOptions: { expiresIn: JwtConfig.user_expired },
+    }),
+    PrismaModule,
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy],
+})
+export class AuthModule {}
+```
+
+---
+
+### 9.3 JWT Strategy
+
+```ts
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(configService: ConfigService) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      secretOrKey: configService.getOrThrow('JWT_SECRET'),
+    });
+  }
+
+  async validate(payload: any) {
+    return payload;
+  }
+}
+```
+
+---
+
+### 9.4 Auth Service (Login)
+
+```ts
+const token = this.jwtService.sign({
+  sub: user.id,
+  email: user.email,
+  name: user.name,
+});
+```
+
+---
+
+### 9.5 Protect Route
+
+```ts
+@UseGuards(AuthGuard('jwt'))
+@Get('profile')
+getProfile(@Req() req) {
+  return req.user;
+}
+```
 
 ---
 
@@ -147,15 +230,16 @@ JWT Strategy menggunakan `passport-jwt` dan `ConfigService`.
 
 ### Register
 
-POST `/auth/register`
+`POST /auth/register`
 
 ### Login
 
-POST `/auth/login`
+`POST /auth/login`
 
 ---
 
-## 📌 11. Catatan Penting
+## 📌 11. Catatan Tambahan
 
-- Jangan commit `.env`
-- Jalankan `prisma generate` jika schema berubah
+- Jalankan `prisma generate` setiap schema berubah
+- Jangan commit file `.env`
+- JWT Guard bisa dipasang di controller manapun
