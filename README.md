@@ -72,7 +72,6 @@ Buat database PostgreSQL lalu isi file `.env`:
 ```env
 DATABASE_URL="postgresql://postgres:password@localhost:5432/endayfood"
 JWT_SECRET=supersecretjwtkey
-JWT_EXPIRES_IN=1d
 ```
 
 ---
