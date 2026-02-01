@@ -14,6 +14,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { TransformPasswordPipe } from './transform-password.pipe';
+import { Req } from '@nestjs/common';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -42,5 +43,12 @@ export class AuthController {
     return {
       message: 'Profile',
     };
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  async logout(@Req() req: any) {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    return this.authService.logout(token);
   }
 }

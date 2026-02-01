@@ -79,4 +79,28 @@ export class AuthService {
       user: omit(user, ['password', 'createdAt', 'updatedAt']),
     };
   }
+
+  async logout(token: string) {
+    if (!token) {
+      throw new HttpException('Token not found', HttpStatus.BAD_REQUEST);
+    }
+
+    const decoded: any = this.jwtService.decode(token);
+
+    if (!decoded?.exp) {
+      throw new HttpException('Invalid Token', HttpStatus.BAD_REQUEST);
+    }
+
+    await this.dbService.revokedToken.create({
+      data: {
+        token,
+        expiredAt: new Date(decoded.exp * 1000),
+      },
+    });
+
+    return {
+      statusCode: 200,
+      message: 'Logout Succes',
+    };
+  }
 }

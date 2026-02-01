@@ -1,9 +1,17 @@
-# 📦 Enday Food — Backend API
+# 🔐 auth-api-nest.js — Backend Authentication API
 
 ## 🛠 Overview
 
-Enday Food adalah aplikasi pemesanan makanan yang masih tahap pembelajaran, saat ini masih tahap backend Authentication. Backend REST API ini berbasis **NestJS + Prisma + PostgreSQL + JWT Authentication**.
-Dokumentasi ini merupakan tutorial lengkap dari nol hingga aplikasi berjalan, menggabungkan referensi dari Agik Setiawan dan hasil implementasi final pada project ini.
+auth-api-nest.js adalah project backend **Authentication API** berbasis **NestJS + Prisma + PostgreSQL + JWT**.
+Project ini dibuat sebagai media belajar backend authentication modern, dengan fokus pada:
+
+- Register & Login
+- JWT Authentication
+- Protect Route
+- Logout dengan token revocation
+- Struktur backend yang rapi & scalable
+
+Dokumentasi ini merupakan tutorial **step-by-step dari nol sampai berjalan**, hasil gabungan referensi dan implementasi final.
 
 ---
 
@@ -13,30 +21,32 @@ Dokumentasi ini merupakan tutorial lengkap dari nol hingga aplikasi berjalan, me
 2. 📋 Prasyarat
 3. 🚀 Setup Proyek
 4. 📦 Instalasi Dependencies
-5. 🔧 Konfigurasi Database
+5. 🔧 Konfigurasi Environment
 6. 🗂 Prisma Schema & Migrasi
 7. 📜 Struktur Folder
 8. 🧠 Prisma Service
 9. 🔐 JWT Authentication
-10. 🧪 Testing API
-11. 📌 Catatan Tambahan
+10. 🚪 Logout (JWT Revocation)
+11. 🧪 Testing API
+12. 📌 Catatan Tambahan
 
 ---
 
 ## 📦 1. Teknologi
 
-- Node.js
+- Node.js 18+
 - NestJS
 - Prisma ORM v5
 - PostgreSQL
 - JWT Authentication
+- Passport JWT
 - Bcrypt
 
 ---
 
 ## 📋 2. Prasyarat
 
-- Node.js 18+
+- Node.js
 - npm
 - PostgreSQL
 - Git
@@ -45,11 +55,9 @@ Dokumentasi ini merupakan tutorial lengkap dari nol hingga aplikasi berjalan, me
 
 ## 🚀 3. Setup Proyek
 
-Buat project NestJS:
-
 ```bash
-npx @nestjs/cli new backend
-cd backend
+npx @nestjs/cli new auth-api-nest.js
+cd auth-api-nest.js
 ```
 
 ---
@@ -65,24 +73,32 @@ npm install -D @types/bcrypt @types/passport-jwt
 
 ---
 
-## 🔧 5. Konfigurasi Database
+## 🔧 5. Konfigurasi Environment
 
-Buat database PostgreSQL lalu isi file `.env`:
+Buat file `.env`:
 
 ```env
-DATABASE_URL="postgresql://postgres:password@localhost:5432/endayfood"
+DATABASE_URL="postgresql://postgres:password@localhost:5432/auth_api"
 JWT_SECRET=supersecretjwtkey
 ```
+
+⚠️ **JWT_SECRET WAJIB ada di `.env`** agar:
+
+- Aman (tidak hardcode)
+- Bisa berbeda per environment (dev / prod)
+- Bisa di-rotate tanpa mengubah source code
 
 ---
 
 ## 🗂 6. Prisma Schema & Migrasi
 
+Inisialisasi Prisma:
+
 ```bash
 npx prisma init
 ```
 
-`prisma/schema.prisma`
+### `prisma/schema.prisma`
 
 ```prisma
 generator client {
@@ -103,10 +119,18 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model RevokedToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  revokedAt DateTime @default(now())
+}
 ```
 
+Migrasi database:
+
 ```bash
-npx prisma migrate dev --name init
+npx prisma migrate dev --name init-auth
 npx prisma generate
 ```
 
@@ -115,35 +139,22 @@ npx prisma generate
 ## 📜 7. Struktur Folder
 
 ```text
-backend/
-├── prisma/                       # ORM v5
-│   └── schema.prisma
-│
-├── src/
-│   ├── auth/                     # Authentication, Authorization
-│   │   ├── dto/                  # Validasi data request
-│   │   │   ├── login.dto.ts
-│   │   │   └── register.dto.ts
-│   │   │
-│   │   ├── auth.controller.ts    # berisi endpoint API dari auth
-│   │   ├── auth.service.ts       # logic utama authentication
-│   │   ├── auth.module.ts # tempat Controller, Service, JWT Module, Passport Module
-│   │   └── jwt.strategy.ts # Digunakan Passport JWT untuk ekstrak token, validasi, payload
+src/
+├── auth/
+│   ├── dto/
+│   │   ├── login.dto.ts
+│   │   └── register.dto.ts
 │   │
-│   ├── prisma/
-│   │   └── prisma.service.ts     # koneksi database
-│   │
-│   ├── app.controller.ts
-│   ├── app.service.ts
-│   ├── app.module.ts             # menggabungkan semua module
-│   └── main.ts                   # entry point
+│   ├── auth.controller.ts
+│   ├── auth.service.ts
+│   ├── auth.module.ts
+│   └── jwt.strategy.ts
 │
-├── .env
-├── .env.example
-├── package.json
-├── tsconfig.json
-└── README.md
-
+├── prisma/
+│   └── prisma.service.ts
+│
+├── app.module.ts
+└── main.ts
 ```
 
 ---
@@ -163,19 +174,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 
 ## 🔐 9. JWT Authentication
 
-### 9.1 Konfigurasi JWT
-
-`src/jwt.config.ts`
+### 9.1 JWT Config
 
 ```ts
 import { SignOptions } from 'jsonwebtoken';
 
-export const JwtConfig: {
-  user_secret: string;
-  user_expired: SignOptions['expiresIn'];
-} = {
+export const JwtConfig = {
   user_secret: process.env.JWT_SECRET!,
-  user_expired: '1d',
+  user_expired: '1d' as SignOptions['expiresIn'],
 };
 ```
 
@@ -186,11 +192,7 @@ export const JwtConfig: {
 ```ts
 @Module({
   imports: [
-    PassportModule.register({
-      defaultStrategy: 'jwt',
-      property: 'user',
-      session: false,
-    }),
+    PassportModule,
     JwtModule.register({
       secret: JwtConfig.user_secret,
       signOptions: {
@@ -198,8 +200,8 @@ export const JwtConfig: {
       },
     }),
   ],
-  providers: [AuthService, JwtStrategy],
   controllers: [AuthController],
+  providers: [AuthService, JwtStrategy],
 })
 export class AuthModule {}
 ```
@@ -211,10 +213,9 @@ export class AuthModule {}
 ```ts
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService) {
+  constructor(private prisma: PrismaService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
       secretOrKey: JwtConfig.user_secret,
     });
   }
@@ -227,7 +228,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
 ---
 
-### 9.4 Auth Service (Login)
+### 9.4 Login
 
 ```ts
 const token = this.jwtService.sign({
@@ -251,20 +252,92 @@ getProfile(@Req() req) {
 
 ---
 
-## 🧪 10. Testing API
+## 🚪 10. Logout (JWT Revocation)
 
-### Register
+Logout **tidak menghapus JWT**, tetapi **menandai token sebagai revoked** di database.
 
-`POST /auth/register`
+### 10.1 Logout Endpoint
 
-### Login
-
-`POST /auth/login`
+```ts
+@UseGuards(AuthGuard('jwt'))
+@Post('logout')
+async logout(@Req() req) {
+  const token = req.headers.authorization.replace('Bearer ', '');
+  return this.authService.logout(token);
+}
+```
 
 ---
 
-## 📌 11. Catatan Tambahan
+### 10.2 Auth Service
 
-- Jalankan `prisma generate` setiap schema berubah
+```ts
+async logout(token: string) {
+  await this.prisma.revokedToken.create({
+    data: { token },
+  });
+
+  return { message: 'Logout successful' };
+}
+```
+
+---
+
+### 10.3 Cek Token di JWT Strategy
+
+```ts
+const revoked = await this.prisma.revokedToken.findFirst({
+  where: { token },
+});
+
+if (revoked) {
+  throw new UnauthorizedException('Token revoked');
+}
+```
+
+📌 **Hasil:**
+
+- Token lama ❌ tidak bisa digunakan lagi
+- User harus login ulang
+
+---
+
+## 🧪 11. Testing API
+
+### Register
+
+```http
+POST /auth/register
+```
+
+### Login
+
+```http
+POST /auth/login
+```
+
+### Profile (Protected)
+
+```http
+GET /auth/profile
+```
+
+### Logout
+
+```http
+POST /auth/logout
+Authorization: Bearer <token>
+```
+
+---
+
+## 📌 12. Catatan Tambahan
+
 - Jangan commit file `.env`
-- JWT Guard bisa dipasang di controller manapun
+- Jalankan `prisma migrate dev` setiap schema berubah
+- Logout JWT **membutuhkan database** (tidak stateless murni)
+- Cocok sebagai base project untuk:
+  - RBAC
+  - Refresh Token
+  - OAuth
+  - Microservice Authentication
