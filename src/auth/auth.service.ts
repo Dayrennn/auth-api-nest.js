@@ -5,12 +5,14 @@ import { LoginDto } from './dto/login.dto';
 import { omit } from 'lodash';
 import { compare } from 'bcrypt';
 import { JwtConfig } from 'src/jwt.config';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AuthService {
   constructor(
     private jwtService: JwtService,
     private dbService: PrismaService,
+    private configService: ConfigService,
   ) {}
 
   async register(dto: any) {
@@ -57,7 +59,7 @@ export class AuthService {
     id: string,
     email: string,
     user: any,
-    secret: string,
+    user_secret: string,
     expired = JwtConfig.user_expired,
   ) {
     const accessToken = await this.jwtService.sign(
@@ -67,8 +69,8 @@ export class AuthService {
         name: user.name,
       },
       {
-        expiresIn: expired,
-        secret: secret,
+        secret: JwtConfig.user_secret,
+        expiresIn: JwtConfig.user_expired,
       },
     );
     return {

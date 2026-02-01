@@ -169,9 +169,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 `src/jwt.config.ts`
 
 ```ts
-export const JwtConfig = {
-  user_secret: process.env.JWT_SECRET as string,
-  user_expired: process.env.JWT_EXPIRES_IN || '1d',
+import { SignOptions } from 'jsonwebtoken';
+
+export const JwtConfig: {
+  user_secret: string;
+  user_expired: SignOptions['expiresIn'];
+} = {
+  user_secret: process.env.JWT_SECRET!,
+  user_expired: '1d',
 };
 ```
 
@@ -182,16 +187,20 @@ export const JwtConfig = {
 ```ts
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    PassportModule,
+    PassportModule.register({
+      defaultStrategy: 'jwt',
+      property: 'user',
+      session: false,
+    }),
     JwtModule.register({
       secret: JwtConfig.user_secret,
-      signOptions: { expiresIn: JwtConfig.user_expired },
+      signOptions: {
+        expiresIn: JwtConfig.user_expired,
+      },
     }),
-    PrismaModule,
   ],
-  controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
+  controllers: [AuthController],
 })
 export class AuthModule {}
 ```
@@ -206,7 +215,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(configService: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: configService.getOrThrow('JWT_SECRET'),
+      ignoreExpiration: false,
+      secretOrKey: JwtConfig.user_secret,
     });
   }
 
