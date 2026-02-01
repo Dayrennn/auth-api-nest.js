@@ -116,19 +116,35 @@ npx prisma generate
 ## 📜 7. Struktur Folder
 
 ```text
-src/
-├─ auth/
-│  ├─ auth.controller.ts
-│  ├─ auth.service.ts
-│  ├─ jwt.strategy.ts
-│  └─ dto/
-│     ├─ login.dto.ts
-│     └─ register.dto.ts
-├─ prisma/
-│  ├─ prisma.module.ts
-│  └─ prisma.service.ts
-├─ app.module.ts
-.env
+backend/
+├── prisma/                       # ORM v5
+│   └── schema.prisma
+│
+├── src/
+│   ├── auth/                     # Authentication, Authorization
+│   │   ├── dto/                  # Validasi data request
+│   │   │   ├── login.dto.ts
+│   │   │   └── register.dto.ts
+│   │   │
+│   │   ├── auth.controller.ts    # berisi endpoint API dari auth
+│   │   ├── auth.service.ts       # logic utama authentication
+│   │   ├── auth.module.ts # tempat Controller, Service, JWT Module, Passport Module
+│   │   └── jwt.strategy.ts # Digunakan Passport JWT untuk ekstrak token, validasi, payload
+│   │
+│   ├── prisma/
+│   │   └── prisma.service.ts     # koneksi database
+│   │
+│   ├── app.controller.ts
+│   ├── app.service.ts
+│   ├── app.module.ts             # menggabungkan semua module
+│   └── main.ts                   # entry point
+│
+├── .env
+├── .env.example
+├── package.json
+├── tsconfig.json
+└── README.md
+
 ```
 
 ---
