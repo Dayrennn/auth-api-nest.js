@@ -39,12 +39,14 @@ export class AuthController {
   // detail user
   @UseGuards(JwtAuthGuard)
   @Get('profile')
-  async profile() {
+  async profile(@Req() req: any) {
+    const id = req.user.sub;
+    const user = await this.authService.getUserById(id);
     return {
-      message: 'Profile',
+      statusCode: 200,
+      user,
     };
   }
-
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   async logout(@Req() req: any) {

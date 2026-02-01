@@ -103,4 +103,20 @@ export class AuthService {
       message: 'Logout Succes',
     };
   }
+
+  async getUserById(id: string) {
+    const user = await this.dbService.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        telephone: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!user) throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+    return user;
+  }
 }
