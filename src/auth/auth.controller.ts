@@ -66,7 +66,7 @@ export class AuthController {
     return this.authService.logout(token); // kirim ke service logout
   }
 
-  // hanya yang login dan role yang sesuai
+  // update user, hanya yang login dan role yang sesuai
   @UseGuards(JwtAuthGuard, RolesGuard)
   // memastikan data dto sesuai
   @UsePipes(ValidationPipe)
