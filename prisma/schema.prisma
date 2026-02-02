@@ -17,6 +17,7 @@ model User {
   name String 
   email String @unique
   telephone String
+  role Role @default(user)
   password String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -27,4 +28,11 @@ model revokedToken {
   token String @unique
   expiredAt DateTime
   createdAt DateTime @default(now())
+}
+
+enum Role {
+  admin
+  kepala_toko
+  kasir
+  user
 }

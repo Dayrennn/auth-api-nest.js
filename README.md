@@ -9,6 +9,7 @@ Project ini dibuat sebagai media belajar backend authentication modern, dengan f
 - JWT Authentication
 - Protect Route
 - Logout dengan token revocation
+- Role-Based Access Control (RBAC)
 - Struktur backend yang rapi & scalable
 
 Dokumentasi ini merupakan tutorial **step-by-step dari nol sampai berjalan**, hasil gabungan referensi dan implementasi final.
@@ -27,8 +28,9 @@ Dokumentasi ini merupakan tutorial **step-by-step dari nol sampai berjalan**, ha
 8. 🧠 Prisma Service
 9. 🔐 JWT Authentication
 10. 🚪 Logout (JWT Revocation)
-11. 🧪 Testing API
-12. 📌 Catatan Tambahan
+11. 🔑 Role-Based Access Control
+12. 🧪 Testing API
+13. 📌 Catatan Tambahan
 
 ---
 
@@ -116,6 +118,7 @@ model User {
   email     String   @unique
   telephone String
   password  String
+  role      Role     @default(user)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -123,7 +126,15 @@ model User {
 model RevokedToken {
   id        String   @id @default(uuid())
   token     String   @unique
-  revokedAt DateTime @default(now())
+  expiredAt DateTime
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  admin
+  kepala_toko
+  kasir
+  user
 }
 ```
 
@@ -140,34 +151,39 @@ npx prisma generate
 
 ```text
 backend/
-├── prisma/                       # ORM v5
+├── prisma/
 │   └── schema.prisma
 │
 ├── src/
-│   ├── auth/                     # Authentication & Authorization
-│   │   ├── dto/                  # Validasi data request
+│   ├── auth/
+│   │   ├── dto/
 │   │   │   ├── login.dto.ts
-│   │   │   └── register.dto.ts
+│   │   │   ├── register.dto.ts
+│   │   │   └── update-user.dto.ts  # DTO untuk update user termasuk role
 │   │   │
-│   │   ├── auth.controller.ts    # Endpoint API untuk auth
-│   │   ├── auth.service.ts       # Logic utama authentication
-│   │   ├── auth.module.ts        # Mengatur Controller, Service, JWT & Passport
-│   │   └── jwt.strategy.ts       # Passport JWT untuk ekstrak token & validasi payload
+│   │   ├── auth.controller.ts
+│   │   ├── auth.service.ts
+│   │   ├── auth.module.ts
+│   │   ├── jwt.strategy.ts
+│   │   ├── transform-password.pipe.ts  # otomatis hash password
+│   │   ├── role/
+│   │   │   ├── roles.decorator.ts       # custom decorator @Roles()
+│   │   │   ├── roles.enum.ts            # enum Role
+│   │   │   └── roles.guard.ts           # RolesGuard untuk RBAC
 │   │
 │   ├── prisma/
-│   │   └── prisma.service.ts     # Koneksi database
+│   │   └── prisma.service.ts
 │   │
 │   ├── app.controller.ts
 │   ├── app.service.ts
-│   ├── app.module.ts             # Menggabungkan semua module
-│   └── main.ts                   # Entry point
+│   ├── app.module.ts
+│   └── main.ts
 │
 ├── .env
 ├── .env.example
 ├── package.json
 ├── tsconfig.json
 └── README.md
-
 ```
 
 ---
@@ -190,11 +206,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 ### 9.1 JWT Config
 
 ```ts
-import { SignOptions } from 'jsonwebtoken';
-
 export const JwtConfig = {
   user_secret: process.env.JWT_SECRET!,
-  user_expired: '1d' as SignOptions['expiresIn'],
+  user_expired: '1d',
 };
 ```
 
@@ -205,16 +219,18 @@ export const JwtConfig = {
 ```ts
 @Module({
   imports: [
-    PassportModule,
+    PassportModule.register({
+      defaultStrategy: 'jwt',
+      property: 'user',
+      session: false,
+    }),
     JwtModule.register({
       secret: JwtConfig.user_secret,
-      signOptions: {
-        expiresIn: JwtConfig.user_expired,
-      },
+      signOptions: { expiresIn: JwtConfig.user_expired },
     }),
   ],
-  controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
+  controllers: [AuthController],
 })
 export class AuthModule {}
 ```
@@ -230,11 +246,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKey: JwtConfig.user_secret,
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: any) {
-    return payload;
+  async validate(req: Request, payload: any) {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) throw new UnauthorizedException('Token not found');
+
+    const revoked = await this.prisma.revokedToken.findFirst({
+      where: { token },
+    });
+    if (revoked) throw new UnauthorizedException('Token revoked');
+
+    return {
+      sub: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      role: payload.role,
+    };
   }
 }
 ```
@@ -244,10 +274,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 ### 9.4 Login
 
 ```ts
-const token = this.jwtService.sign({
+const accessToken = await this.jwtService.sign({
   sub: user.id,
   email: user.email,
   name: user.name,
+  role: user.role,
 });
 ```
 
@@ -256,10 +287,11 @@ const token = this.jwtService.sign({
 ### 9.5 Protect Route
 
 ```ts
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(JwtAuthGuard)
 @Get('profile')
-getProfile(@Req() req) {
-  return req.user;
+async profile(@Req() req: any) {
+  const id = req.user.sub;
+  return await this.authService.getUserById(id);
 }
 ```
 
@@ -269,53 +301,105 @@ getProfile(@Req() req) {
 
 Logout **tidak menghapus JWT**, tetapi **menandai token sebagai revoked** di database.
 
-### 10.1 Logout Endpoint
-
 ```ts
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(JwtAuthGuard)
 @Post('logout')
-async logout(@Req() req) {
-  const token = req.headers.authorization.replace('Bearer ', '');
+async logout(@Req() req: any) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
   return this.authService.logout(token);
 }
 ```
 
----
-
-### 10.2 Auth Service
-
 ```ts
 async logout(token: string) {
-  await this.prisma.revokedToken.create({
-    data: { token },
+  if (!token) throw new HttpException('Token not found', HttpStatus.BAD_REQUEST);
+
+  const decoded: any = this.jwtService.decode(token);
+  if (!decoded?.exp) throw new HttpException('Invalid Token', HttpStatus.BAD_REQUEST);
+
+  await this.dbService.revokedToken.create({
+    data: { token, expiredAt: new Date(decoded.exp * 1000) },
   });
 
-  return { message: 'Logout successful' };
+  return { statusCode: 200, message: 'Logout Success' };
 }
 ```
 
 ---
 
-### 10.3 Cek Token di JWT Strategy
+## 🔑 11. Role-Based Access Control (RBAC)
+
+### 11.1 Role Enum
 
 ```ts
-const revoked = await this.prisma.revokedToken.findFirst({
-  where: { token },
-});
-
-if (revoked) {
-  throw new UnauthorizedException('Token revoked');
+export enum Role {
+  admin = 'admin',
+  kepala_toko = 'kepala_toko',
+  kasir = 'kasir',
+  user = 'user',
 }
 ```
 
-📌 **Hasil:**
+### 11.2 Roles Decorator
 
-- Token lama ❌ tidak bisa digunakan lagi
-- User harus login ulang
+```ts
+export const ROLES_KEY = 'role';
+export const Roles = (...role: Role[]) => SetMetadata(ROLES_KEY, role);
+```
+
+- Digunakan di controller untuk menentukan role yang boleh akses endpoint.
+- Contoh:
+
+```ts
+@Roles(Role.ADMIN)
+@Patch('update-user/:id')
+```
+
+### 11.3 Roles Guard
+
+```ts
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (!requiredRoles) return true; // jika tidak ada role yang ditentukan, semua boleh akses
+
+    const request = context.switchToHttp().getRequest();
+    const user = request.user;
+    return requiredRoles.includes(user.role);
+  }
+}
+```
+
+### 11.4 Update User Endpoint (Admin Only)
+
+```ts
+@UseGuards(JwtAuthGuard, RolesGuard)
+@UsePipes(ValidationPipe)
+@Patch('update-user/:id')
+@Roles(Role.ADMIN)
+async updateUser(
+  @Req() req: any,
+  @Param('id') id: string,
+  @Body() dto: UpdateUserDto,
+) {
+  const currentUser = req.user;
+  return await this.authService.updateUser(currentUser, id, dto);
+}
+```
+
+- Hanya **admin** yang bisa mengubah data user lain.
+- `currentUser` dari JWT, digunakan untuk membatasi update user **lain atau diri sendiri**.
 
 ---
 
-## 🧪 11. Testing API
+## 🧪 12. Testing API
 
 ### Register
 
@@ -333,6 +417,7 @@ POST /auth/login
 
 ```http
 GET /auth/profile
+Authorization: Bearer <token>
 ```
 
 ### Logout
@@ -342,9 +427,17 @@ POST /auth/logout
 Authorization: Bearer <token>
 ```
 
+### Update User (Admin Only)
+
+```http
+PATCH /auth/update-user/:id
+Authorization: Bearer <token-admin>
+Body: { "name": "New Name", "role": "user" }
+```
+
 ---
 
-## 📌 12. Catatan Tambahan
+## 📌 13. Catatan Tambahan
 
 - Jangan commit file `.env`
 - Jalankan `prisma migrate dev` setiap schema berubah

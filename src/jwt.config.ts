@@ -5,5 +5,5 @@ export const JwtConfig: {
   user_expired: SignOptions['expiresIn'];
 } = {
   user_secret: process.env.JWT_SECRET!,
-  user_expired: '1d',
+  user_expired: '1d' as const,
 };
